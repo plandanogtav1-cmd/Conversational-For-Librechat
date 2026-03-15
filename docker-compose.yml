@@ -1,0 +1,145 @@
+# docker-compose.yml
+# Conversational-For-LibreChat — Local Development Stack
+#
+# Services:
+#   livekit      — LiveKit server (WebRTC SFU)
+#   voice-bridge — TypeScript bridge (STT→LLM→TTS)
+#   piper        — Local TTS server (optional; set TTS_PROVIDER=piper)
+#   redis        — Optional: for future session persistence
+#
+# Usage:
+#   cp .env.example .env   # fill in API keys
+#   docker compose up
+#
+# Test the bridge:
+#   curl http://localhost:8080/health
+#   curl -X POST http://localhost:8080/api/token \
+#     -H "Authorization: Bearer <BRIDGE_API_SECRET>" \
+#     -H "Content-Type: application/json" \
+#     -d '{"participantName":"test","roomName":"demo"}'
+
+version: "3.9"
+
+networks:
+  voice:
+    driver: bridge
+
+volumes:
+  livekit-data:
+
+# ── Services ──────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── LiveKit SFU ─────────────────────────────────────────────────────────────
+  livekit:
+    image: livekit/livekit-server:latest
+    command: --dev --bind 0.0.0.0
+    ports:
+      - "7880:7880"        # HTTP / WebSocket
+      - "7881:7881"        # RTCP
+      - "50100-50200:50100-50200/udp"  # WebRTC media ports
+    environment:
+      - LIVEKIT_KEYS=${LIVEKIT_API_KEY:-devkey}:${LIVEKIT_API_SECRET:-devsecret}
+    networks:
+      - voice
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7880/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Voice Bridge ─────────────────────────────────────────────────────────────
+  voice-bridge:
+    build:
+      context: ./voice-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      # Override LiveKit URL to use the compose network hostname
+      LIVEKIT_URL: ws://livekit:7880
+      HOST: 0.0.0.0
+    networks:
+      - voice
+    depends_on:
+      livekit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ── Piper TTS (local, free) ──────────────────────────────────────────────────
+  # Only needed if TTS_PROVIDER=piper
+  # Uses: https://github.com/rhasspy/piper
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    profiles:
+      - piper                 # opt-in: docker compose --profile piper up
+    ports:
+      - "10200:10200"         # Wyoming protocol port
+    volumes:
+      - ./piper-voices:/data  # Voice model files
+    command: --voice en_US-lessac-medium --uri tcp://0.0.0.0:10200
+    networks:
+      - voice
+    restart: unless-stopped
+
+  # ── Piper HTTP wrapper ────────────────────────────────────────────────────────
+  # Thin HTTP→Wyoming proxy so voice-bridge can call POST /synthesize
+  piper-http:
+    image: python:3.11-slim
+    profiles:
+      - piper
+    ports:
+      - "5000:5000"
+    networks:
+      - voice
+    depends_on:
+      - piper
+    command: >
+      python3 -c "
+      import http.server, json, subprocess, io, socketserver, urllib.request
+
+      class Handler(http.server.BaseHTTPRequestHandler):
+          def do_POST(self):
+              body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+              text = body.get('text', '')
+              # Forward to Piper via echo pipe
+              result = subprocess.run(['piper', '--model', '/data/en_US-lessac-medium.onnx',
+                '--output_raw'], input=text.encode(), capture_output=True)
+              self.send_response(200)
+              self.send_header('Content-Type', 'audio/raw')
+              self.end_headers()
+              self.wfile.write(result.stdout)
+          def log_message(self, *args): pass
+
+      with socketserver.TCPServer(('0.0.0.0', 5000), Handler) as s:
+          s.serve_forever()
+      "
+    restart: unless-stopped
+
+  # ── faster-whisper (STT fallback) ────────────────────────────────────────────
+  whisper:
+    image: onerahmet/openai-whisper-asr-webservice:latest-cpu
+    profiles:
+      - whisper               # opt-in: docker compose --profile whisper up
+    ports:
+      - "9000:9000"
+    environment:
+      ASR_MODEL: base
+      ASR_ENGINE: faster_whisper
+    networks:
+      - voice
+    restart: unless-stopped

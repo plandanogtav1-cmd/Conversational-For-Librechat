@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+.env.local
+*.log
+piper-voices/
+coverage/
+.DS_Store

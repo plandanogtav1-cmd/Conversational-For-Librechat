@@ -1,0 +1,54 @@
+{
+  "name": "voice-bridge",
+  "version": "0.1.0",
+  "description": "Headless voice pipeline bridge: LiveKit ↔ Deepgram STT ↔ LibreChat LLM ↔ TTS",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@deepgram/sdk": "^3.5.0",
+    "@livekit/rtc-node": "^0.13.0",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "form-data": "^4.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "livekit-server-sdk": "^2.6.0",
+    "pino": "^9.3.2",
+    "pino-pretty": "^11.2.1",
+    "uuid": "^10.0.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/form-data": "^2.5.0",
+    "@types/jest": "^29.5.12",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^20.14.10",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.5.11",
+    "@typescript-eslint/eslint-plugin": "^7.16.0",
+    "@typescript-eslint/parser": "^7.16.0",
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.3"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.ts"],
+    "collectCoverageFrom": ["src/**/*.ts"]
+  }
+}
